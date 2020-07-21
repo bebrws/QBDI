@@ -254,6 +254,9 @@ int qbdipreload_on_main(int argc, char** argv) {
     mod->path = info->imageFilePath;
     mod->start = header;
     mod->end = header_end - 1; // TODO: Is this necessary?
+
+    // printf("%*d, 0x%llx, 0x%llx, 0x0000000000000000, 0x00000000, 0x00000000, %s\n", 2, 0, header, header_end, info->imageFilePath);
+
     list_add(&modules, &mod->mlist);
   }    
     
