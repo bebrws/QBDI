@@ -237,83 +237,43 @@ int qbdipreload_on_main(int argc, char** argv) {
   list_init(&bbs);
   install_sigint();
   
-  // task_dyld_info_data_t task_dyld_info;
-  // mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
-  // if (task_info(mach_task_self (), TASK_DYLD_INFO, (task_info_t)&task_dyld_info,
-  //               &count) != KERN_SUCCESS) {
-  //   printf("Unable to get task info\n");
-  //   return QBDIPRELOAD_NOT_HANDLED;
-  // }
+  task_dyld_info_data_t task_dyld_info;
+  mach_msg_type_number_t count = TASK_DYLD_INFO_COUNT;
+  if (task_info(mach_task_self (), TASK_DYLD_INFO, (task_info_t)&task_dyld_info,
+                &count) != KERN_SUCCESS) {
+    printf("Unable to get task info\n");
+    return QBDIPRELOAD_NOT_HANDLED;
+  }
 
-  // struct dyld_all_image_infos* aii = (struct dyld_all_image_infos*)task_dyld_info.all_image_info_addr;
-  // infoCount = aii->infoArrayCount;
+  struct dyld_all_image_infos* aii = (struct dyld_all_image_infos*)task_dyld_info.all_image_info_addr;
+  infoCount = aii->infoArrayCount;
 
-  // // Iterate through all dyld images (loaded libraries) to get their names
-  // // and offests.
-  // for (size_t i = 0; i < infoCount; ++i) {
-  //   const struct dyld_image_info *info = &aii->infoArray[i];
+  // Iterate through all dyld images (loaded libraries) to get their names
+  // and offests.
+  for (size_t i = 0; i < infoCount; ++i) {
+    const struct dyld_image_info *info = &aii->infoArray[i];
 
-  //   // If the magic number doesn't match then go no further
-  //   // since we're not pointing to where we think we are.
-  //   if (info->imageLoadAddress->magic != MACHO_MAGIC_NUMBER) {
-  //     continue;
-  //   }
-
-  //   platform_mach_header* header = (platform_mach_header *)info->imageLoadAddress;
-    
-  //   size_t image_size = size_of_image(header);
-  //   unsigned long long header_end = (unsigned long long)header + image_size;
-
-  //   dyld_module *mod;
-  //   mod = malloc(sizeof(dyld_module));
-  //   mod->path = info->imageFilePath;
-  //   mod->start = header;
-  //   mod->end = header_end - 1; // TODO: Is this necessary?
-
-  //   printf("%*d, 0x%llx, 0x%llx, 0x0000000000000000, 0x00000000, 0x00000000, %s\n", 2, i, header, header_end, info->imageFilePath);
-
-  //   list_add(&modules, &mod->mlist);
-  // }    
-
-
-
-
-    size_t number_of_loaded_modules = 0;
-
-    qbdi_MemoryMap *maps = qbdi_getCurrentProcessMaps(true, &number_of_loaded_modules);
-    printf("Number of loaded modules: %d\n", number_of_loaded_modules);
-
-    int name_modules = 0;
-    int no_name_count = 1;
-    for(int i = 0; i < number_of_loaded_modules; i++) {
-        char *cur_name = maps[i].name;
-        // if (strlen(cur_name) == 0) {
-        //   char *temp_name = malloc(sizeof(char) * 100);
-        //   sprintf(temp_name, "NONAME-%d", no_name_count++);
-        //   cur_name = temp_name;
-        // }
-      if (strlen(cur_name) != 0) {
-        dyld_module *mod;
-        mod = malloc(sizeof(dyld_module));
-        mod->path = cur_name;
-        mod->start = maps[i].start;
-        mod->end = maps[i].end;
-
-        printf("%*d, 0x%llx, 0x%llx, 0x0000000000000000, 0x00000000, 0x00000000, %s\n", 2, name_modules, maps[i].start, maps[i].end, cur_name);
-        printf("\t%s (%c%c%c) ", cur_name,
-                maps[i].permission & QBDI_PF_READ ? 'r' : '-',
-                maps[i].permission & QBDI_PF_WRITE ? 'w' : '-',
-                maps[i].permission & QBDI_PF_EXEC ? 'x' : '-');
-        printf("(%#" PRIRWORD ", %#" PRIRWORD ")\n", maps[i].start, maps[i].end);
-
-
-        list_add(&modules, &mod->mlist);
-
-        name_modules += 1;
-      }
+    // If the magic number doesn't match then go no further
+    // since we're not pointing to where we think we are.
+    if (info->imageLoadAddress->magic != MACHO_MAGIC_NUMBER) {
+      continue;
     }
-    qbdi_freeMemoryMapArray(maps, number_of_loaded_modules);
 
+    platform_mach_header* header = (platform_mach_header *)info->imageLoadAddress;
+    
+    size_t image_size = size_of_image(header);
+    unsigned long long header_end = (unsigned long long)header + image_size;
+
+    dyld_module *mod;
+    mod = malloc(sizeof(dyld_module));
+    mod->path = info->imageFilePath;
+    mod->start = header;
+    mod->end = header_end - 1; // TODO: Is this necessary?
+
+    printf("%*d, 0x%llx, 0x%llx, 0x0000000000000000, 0x00000000, 0x00000000, %s\n", 2, i, header, header_end, info->imageFilePath);
+
+    list_add(&modules, &mod->mlist);
+  }    
     
     return QBDIPRELOAD_NOT_HANDLED;
 }
@@ -365,8 +325,8 @@ VMAction onEventCB(VMInstanceRef vm, const VMState *state, GPRState *gprState, F
 }
 
 int qbdipreload_on_run(VMInstanceRef vm, rword start, rword stop) {
-    qbdi_addCodeCB(vm, QBDI_PREINST, onInstructionCB, NULL);
-    // qbdi_addVMEventCB(vm, _QBDI_EI(BASIC_BLOCK_ENTRY), onEventCB, NULL);
+    // qbdi_addCodeCB(vm, QBDI_PREINST, onInstructionCB, NULL);
+    qbdi_addVMEventCB(vm, _QBDI_EI(BASIC_BLOCK_ENTRY), onEventCB, NULL);
     qbdi_run(vm, start, stop);
     return QBDIPRELOAD_NO_ERROR;
 }

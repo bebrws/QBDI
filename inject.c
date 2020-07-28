@@ -229,7 +229,36 @@ size_t size_of_image(struct mach_header_64 *header) {
     return sz;
 }
 
-int qbdipreload_on_main(int argc, char** argv) {
+
+static const rword FAKE_RET_ADDR = 0x40000;
+
+QBDI_NOINLINE const char* dbirun(const char* password) {
+    char hash[] = "\x6f\x29\x2a\x29\x1a\x1c\x07\x01";
+    size_t i = 0;
+
+    hashPassword(hash, password);
+
+    bool good = true;
+    for(i = 0; i < sizeof(hash); i++) {
+        if(hash[i] != 0) {
+            good = false;
+        }
+    }
+    
+    if(good) {
+        return getSecret(password);
+    }
+    else {
+        return NULL;
+    }
+}
+
+
+
+void __attribute__((constructor)) constructor() {
+
+    VMInstanceRef vm;
+    qbdi_initVM(&vm, NULL, NULL);
 
   map_init(&m);
 
@@ -278,45 +307,45 @@ int qbdipreload_on_main(int argc, char** argv) {
 
 
 
-    size_t number_of_loaded_modules = 0;
+    size_t size = 0, i = 0;
 
-    qbdi_MemoryMap *maps = qbdi_getCurrentProcessMaps(true, &number_of_loaded_modules);
-    printf("Number of loaded modules: %d\n", number_of_loaded_modules);
+    qbdi_MemoryMap *maps = qbdi_getCurrentProcessMaps(true, &size);
+    printf("Number of loaded modules: %d\n", size);
 
-    int name_modules = 0;
     int no_name_count = 1;
-    for(int i = 0; i < number_of_loaded_modules; i++) {
+    for(i = 0; i < size; i++) {
         char *cur_name = maps[i].name;
-        // if (strlen(cur_name) == 0) {
-        //   char *temp_name = malloc(sizeof(char) * 100);
-        //   sprintf(temp_name, "NONAME-%d", no_name_count++);
-        //   cur_name = temp_name;
-        // }
-      if (strlen(cur_name) != 0) {
-        dyld_module *mod;
-        mod = malloc(sizeof(dyld_module));
-        mod->path = cur_name;
-        mod->start = maps[i].start;
-        mod->end = maps[i].end;
+        if (strlen(cur_name) == 0) {
+          char *temp_name = malloc(sizeof(char) * 100);
+          sprintf(temp_name, "NONAME-%d", no_name_count++);
+          cur_name = temp_name;
+        }
 
-        printf("%*d, 0x%llx, 0x%llx, 0x0000000000000000, 0x00000000, 0x00000000, %s\n", 2, name_modules, maps[i].start, maps[i].end, cur_name);
-        printf("\t%s (%c%c%c) ", cur_name,
-                maps[i].permission & QBDI_PF_READ ? 'r' : '-',
-                maps[i].permission & QBDI_PF_WRITE ? 'w' : '-',
-                maps[i].permission & QBDI_PF_EXEC ? 'x' : '-');
-        printf("(%#" PRIRWORD ", %#" PRIRWORD ")\n", maps[i].start, maps[i].end);
+      dyld_module *mod;
+      mod = malloc(sizeof(dyld_module));
+      mod->path = cur_name;
+      mod->start = maps[i].start;
+      mod->end = maps[i].end;
+
+      printf("%*d, 0x%llx, 0x%llx, 0x0000000000000000, 0x00000000, 0x00000000, %s\n", 2, i, maps[i].start, maps[i].end, cur_name);
+      printf("\t%s (%c%c%c) ", cur_name,
+              maps[i].permission & QBDI_PF_READ ? 'r' : '-',
+              maps[i].permission & QBDI_PF_WRITE ? 'w' : '-',
+              maps[i].permission & QBDI_PF_EXEC ? 'x' : '-');
+      printf("(%#" PRIRWORD ", %#" PRIRWORD ")\n", maps[i].start, maps[i].end);
 
 
-        list_add(&modules, &mod->mlist);
-
-        name_modules += 1;
-      }
+      list_add(&modules, &mod->mlist);
     }
-    qbdi_freeMemoryMapArray(maps, number_of_loaded_modules);
+    qbdi_freeMemoryMapArray(maps, size);
 
     
-    return QBDIPRELOAD_NOT_HANDLED;
+    qbdi_addCodeCB(vm, QBDI_PREINST, onInstructionCB, NULL);
+    // qbdi_addVMEventCB(vm, _QBDI_EI(BASIC_BLOCK_ENTRY), onEventCB, NULL);
+    qbdi_run(vm, (rword) cryptolock, (rword) FAKE_RET_ADDR);
 }
+
+
 
 // VMState :
 // typedef struct {
@@ -365,9 +394,6 @@ VMAction onEventCB(VMInstanceRef vm, const VMState *state, GPRState *gprState, F
 }
 
 int qbdipreload_on_run(VMInstanceRef vm, rword start, rword stop) {
-    qbdi_addCodeCB(vm, QBDI_PREINST, onInstructionCB, NULL);
-    // qbdi_addVMEventCB(vm, _QBDI_EI(BASIC_BLOCK_ENTRY), onEventCB, NULL);
-    qbdi_run(vm, start, stop);
     return QBDIPRELOAD_NO_ERROR;
 }
 
